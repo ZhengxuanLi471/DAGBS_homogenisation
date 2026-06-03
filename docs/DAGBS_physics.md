@@ -288,7 +288,8 @@ On the hex benchmark (shear, direct solver), `C' ∝ ω²`, `C'' ∝ ω`,
       not yet anchored to a physical `η_Coble = (kT/ΩδD^gb)·L³`.
 - [ ] **Solver for low-ω points** — `C'` reaches ~1e-18; only `solver='direct'`
       resolves it. The CG path (`rtol=1e-8`) re-floors `C'` and re-hides the
-      divergence. The hex driver still uses CG + forced `convergence=True`.
+      divergence. The drivers default to `solver='cg'`; pass `solver='direct'`
+      for the low-ω tail (the old forced `convergence=True` override was removed).
 - [ ] **Benchmark target** — is there a published Raj–Ashby/Coble curve (or
       analytical limit) to cross-check the hex `Q⁻¹ ∝ 1/ω` magnitude against?
 

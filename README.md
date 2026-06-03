@@ -118,9 +118,8 @@ python reproduce_fig1.py 1e-5   # properties vs nu               -> reproduce_fi
 At low frequency the storage relaxes to `C' ~ 1e-18` (the flowing limit). Use
 `solver='direct'` (Pardiso) to see the `Q⁻¹ ∝ 1/ω` divergence: the multigrid-CG
 path (`rtol=1e-8`) cannot resolve a storage that small and will re-floor `C'`,
-masking the divergence. The hex driver currently uses CG with a forced
-`convergence = True` override (testing scaffolding); switch to `direct` for
-trustworthy low-ω results.
+masking the divergence. The drivers default to `solver='cg'`; pass
+`solver='direct'` for trustworthy low-ω results.
 
 ## License
 
