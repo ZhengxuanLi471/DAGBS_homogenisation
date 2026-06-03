@@ -61,8 +61,8 @@ gni = spaces[4]
 
 
 def G12(nu, x, diff_coeff, solver='cg'):
-    gfu, _, _ = solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs, SHEAR,
-                          nu=nu, mu=MU, omega=float(x), solver=solver, rtol=1e-7,
+    gfu, _ = solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs, SHEAR,
+                          nu=nu, mu=MU, omega=float(x), solver=solver, rtol=1e-8,
                           junction_incidence=junction_incidence, diff_coeff=diff_coeff)
     return (storage_modulus(gfu, mesh, nu, MU, NG),
             diffusional_loss(gfu, mesh, contact_pairs, gni, float(x), diff_coeff))

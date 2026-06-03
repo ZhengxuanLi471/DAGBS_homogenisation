@@ -12,7 +12,7 @@ import numpy as np
 from mpi4py import MPI
 import sys
 
-SetNumThreads(32)
+SetNumThreads(8)
 
 NU = 0.35
 MU = 1.0
@@ -85,7 +85,7 @@ def run_branch(Gamma, gamma_tag, diff_coeff):
     for j in range(len(ln_omega)):
         omegai = np.exp(ln_omega[j])
         print("Current omega: ", omegai)
-        gfu, mesh, convergence = solve_rve(
+        gfu, mesh = solve_rve(
             spaces,
             mesh,
             contact_pairs,
@@ -100,28 +100,6 @@ def run_branch(Gamma, gamma_tag, diff_coeff):
             junction_incidence=junction_incidence,
             diff_coeff=diff_coeff,
         )
-        convergence = True  # Override convergence check to force energy computation even if solver struggles at low omega
-        print(convergence)
-        while not convergence:
-            ln_omega[j] += 0.01
-            omegai = np.exp(ln_omega[j])
-            print("Adjusting omega to ", omegai)
-            gfu, mesh, convergence = solve_rve(
-                spaces,
-                mesh,
-                contact_pairs,
-                outer_contact_pairs,
-                Gamma,
-                nu=NU,
-                mu=MU,
-                omega=omegai,
-                solver='cg',
-                rtol=1e-8,
-                corner_bnd=corner_penalty_label,
-                junction_incidence=junction_incidence,
-                diff_coeff=diff_coeff,
-            )
-            print(convergence)
 
         area = float(Integrate(1, mesh, VOL))
         storage, total_diss = compute_energy_metrics(
@@ -197,6 +175,7 @@ seedname = 'hex'
     maxh=0.1*scale_factor,
     comm=MPI.COMM_WORLD,
      core_frac=(float(sys.argv[1]) if len(sys.argv) > 1 else 0.01) * scale_factor,
+     refine_h=(float(sys.argv[2]) if len(sys.argv) > 2 else None),
 )
 
 penalty_boundaries = []

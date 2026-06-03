@@ -64,14 +64,12 @@ print(f"tau_M={tau_M:.6e}  G0={G0:.6f}  eta_ss={info['eta_ss']:.6e}")
 # --- FEM frequency sweep (diff_coeff=tau_M => code-omega == omega*tau_M) ----
 G1 = np.empty_like(X); G2 = np.empty_like(X)
 for i, x in enumerate(X):
-    gfu, mesh_, conv = solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
-                                 SHEAR, nu=NU, mu=MU, omega=float(x),
-                                 solver='cg', rtol=1e-7,
-                                 junction_incidence=junction_incidence, diff_coeff=tau_M)
+    gfu, _ = solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
+                       SHEAR, nu=NU, mu=MU, omega=float(x),
+                       solver='cg', rtol=1e-8,
+                       junction_incidence=junction_incidence, diff_coeff=tau_M)
     G1[i] = storage_modulus(gfu, mesh, NU, MU, NG)
     G2[i] = diffusional_loss(gfu, mesh, contact_pairs, gni, float(x), diff_coeff=tau_M)
-    if not conv:
-        print(f"  (warn) x={x:.3e} not converged")
 
 Gc_fem = G1 + 1j * G2
 

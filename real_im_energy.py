@@ -15,7 +15,7 @@ from mpi4py import MPI
 import json
 import argparse
 
-SetNumThreads(32)
+SetNumThreads(8)
 
 
 parser = argparse.ArgumentParser(
@@ -32,6 +32,12 @@ parser.add_argument(
     type=int,
     nargs="?",
     help="Upper bound (exclusive) for seeds"
+)
+parser.add_argument(
+    "--refine_h",
+    type=float,
+    default=None,
+    help="optional target element size at triple junctions/corners (off by default)"
 )
 args = parser.parse_args()
 
@@ -106,7 +112,7 @@ def run_branch(Gamma, gamma_tag, mesh, spaces, contact_pairs, outer_contact_pair
     for j in range(len(ln_omega)):
         omegai = np.exp(ln_omega[j])
         print("Current omega: ", omegai)
-        gfu, mesh, convergence = solve_rve(
+        gfu, mesh = solve_rve(
             spaces,
             mesh,
             contact_pairs,
@@ -121,27 +127,6 @@ def run_branch(Gamma, gamma_tag, mesh, spaces, contact_pairs, outer_contact_pair
             junction_incidence=junction_incidence,
             diff_coeff=diff_coeff,
         )
-        print(convergence)
-        while not convergence:
-            ln_omega[j] += 0.01
-            omegai = np.exp(ln_omega[j])
-            print("Adjusting omega to ", omegai)
-            gfu, mesh, convergence = solve_rve(
-                spaces,
-                mesh,
-                contact_pairs,
-                outer_contact_pairs,
-                Gamma,
-                nu=NU,
-                mu=MU,
-                omega=omegai,
-                solver='cg',
-                rtol=1e-8,
-                corner_bnd=corner_penalty_label,
-                junction_incidence=junction_incidence,
-                diff_coeff=diff_coeff,
-            )
-            print(convergence)
 
         area = float(Integrate(1, mesh, VOL))
         storage, total_diss = compute_energy_metrics(
@@ -218,6 +203,7 @@ for seed in seeds:
             maxh=0.1,
             comm=MPI.COMM_WORLD,
             core_frac=0.01,
+            refine_h=args.refine_h,
         )
     except Exception as e:
         print(f"MakeMesh failed for {seedname}: {e}")
@@ -251,11 +237,5 @@ for seed in seeds:
           f"(eta_ss={tau_info['eta_ss']:.4e}, G_U={tau_info['G_U']:.4e})")
 
     mesh = run_branch(((0, 1), (0, 0)), "shear", mesh, spaces, contact_pairs,
-                      outer_contact_pairs, corner_penalty_label, gb_normal_indices,
-                      num_grains, seedname, tau_M, junction_incidence=junction_incidence)
-    mesh = run_branch(((1, 0), (0, 0)), "normal_x", mesh, spaces, contact_pairs,
-                      outer_contact_pairs, corner_penalty_label, gb_normal_indices,
-                      num_grains, seedname, tau_M, junction_incidence=junction_incidence)
-    mesh = run_branch(((0, 0), (0, 1)), "normal_y", mesh, spaces, contact_pairs,
                       outer_contact_pairs, corner_penalty_label, gb_normal_indices,
                       num_grains, seedname, tau_M, junction_incidence=junction_incidence)

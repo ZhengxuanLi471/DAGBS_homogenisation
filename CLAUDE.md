@@ -31,8 +31,10 @@ Mixed saddle problem, complex-valued, split into real and imaginary unknowns:
     calibration" below).
   - **Triple-junction coupling (`_add_gb_junction_coupling`)** connects the
     per-edge `t_n` fields: a reservoir potential `μ_J` per junction + a flux
-    multiplier `λ_{e,J}` per incident edge (complex `NumberSpace` scalars). A
-    mortar constraint over each edge's `core` stub at `J` enforces
+    multiplier `λ_{e,J}` per incident edge (complex `NumberSpace` scalars,
+    **`definedon`-restricted to the junction's stub region** — see the
+    "Assembly performance" gotcha; a plain global `NumberSpace` is catastrophic).
+    A mortar constraint over each edge's `core` stub at `J` enforces
     `t_n^{(e)} = μ_J` (continuity); stationarity in `μ_J` gives `Σ λ = 0` (flux
     balance). **This is what enables Coble creep** — without it the boundaries are
     diffusively isolated (zero-flux natural BC) → SLS, no low-ω divergence.
@@ -79,14 +81,21 @@ H1 field (plain `Grad` raises "Trialfunction does not support BND-forms").
   order_gb, junction_incidence=, remove_rbm=True)` returns
   `(fes, V_Re, V_Im, sym, gb_normal_indices)` (the `t_n` Re/Im trial indices per
   interior GB, for the loss post-processing). The mixed `fes` is built in groups
-  of ~√N spaces. Assembly: `_add_gb_normal_coupling` (term4+term5 via
-  `ContactBoundary`, for `'slide'` and `'core'`), `_add_gb_diffusion` (`ds`
-  self-term over `core∪slide`), `_add_gb_junction_coupling` (reservoir/flux
-  Lagrange at junctions), `_add_outer_terms` (periodic), and either
-  `_add_rbm_constraints` (default) or `_add_corner_penalty` (legacy).
+  of ~√N spaces. **GB/outer multiplier spaces are wrapped in `Compress(...)`** and
+  **junction `NumberSpace`s are `definedon`-restricted to their stub region** —
+  both are *load-bearing for assembly speed* (see "Assembly performance" gotcha):
+  without them a ~70-grain seed builds an ~8M-dof system that takes >15 min/solve
+  (effectively hangs); with them it's ~0.27M dofs and ~60 s/solve. Assembly:
+  `_add_gb_normal_coupling` (term4+term5 via `ContactBoundary`, for `'slide'` and
+  `'core'`, `intorder=4`), `_add_gb_diffusion` (`ds` self-term over `core∪slide`),
+  `_add_gb_junction_coupling` (reservoir/flux Lagrange at junctions),
+  `_add_outer_terms` (periodic), and either `_add_rbm_constraints` (default) or
+  `_add_corner_penalty` (legacy).
   `solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs, gamma, nu, mu,
   omega, solver, rtol, corner_bnd, junction_incidence=, remove_rbm=True,
-  diff_coeff=None)` is the single-frequency solve. `diff_coeff` overrides the GB
+  diff_coeff=None)` is the single-frequency solve; it **returns `(gfu, mesh)`**
+  (the old `convergence` flag and the drivers' ω-retry loop were removed — see
+  "Convergence gate"). `diff_coeff` overrides the GB
   diffusion coefficient `C_d` (default `physics.DIFF_COEFF`; pass `0.0` for the
   ω→∞ normal-locked unrelaxed limit used to measure `G_U`). **`build_spaces` and `solve_rve` must be called with the
   same `junction_incidence` and `remove_rbm`** (the FES must match the assembly).
@@ -140,13 +149,34 @@ H1 field (plain `Grad` raises "Trialfunction does not support BND-forms").
   subdivide. With `refine_h` below that, the mesh grades out from each junction
   (hex: 1e-5→ne≈6k, 3e-6→ne≈12k). Needed for high-`ω·τ_M` attenuation fidelity.
 - `solver='direct'` uses Pardiso. `solver='cg'` uses multigrid preconditioning
-  with `maxiter=50` — at high ω the system becomes nearly singular and CG can
-  stall; the driver bumps `ln_omega` by `0.01` and retries until convergence.
+  with `maxiter=50` and stops at relative residual `rtol` (now `1e-8`). On the
+  fixed (`Compress`+`definedon`) system CG converges in ~2 iterations even for
+  ~70-grain seeds.
+- **`rtol` is used ONLY by the CG solver** (`CGSolver(tol=rtol)`); `solver='direct'`
+  ignores it. There is no longer any post-hoc residual gate — see "Convergence gate".
+- **Assembly performance (the big one).** NGSolve compound-FESpace assembly cost
+  scales hard with the *number of component spaces*, and a **global `NumberSpace`
+  is treated as present on every element** — so ~800 global junction scalars (a
+  ~70-grain seed: 100 junctions × (μ_J + per-edge λ)) turn a 4 s elastic assemble
+  into >14 min, *independent of thread count* (measured). Two fixes, both in
+  `build_spaces`, keep it cheap: (1) `Compress(...)` the GB/outer `H1` multiplier
+  spaces — a plain `definedon=bdry` H1 still allocates FULL-mesh ndof (only flags
+  off-region dofs unused), so ~340 of them stack to millions of dead dofs (8M
+  total → the solve froze); `Compress` drops them to ~17 each. (2)
+  `definedon=<stub region>` on the junction `NumberSpace`s so their dof is local
+  to the stub BND elements (absent on all VOL elements). Net: ~70-grain seed
+  ~0.27M dofs, calibration (2 solves) ~2.2 min. Do **not** reintroduce a bare
+  `NumberSpace(mesh)` for per-junction unknowns.
+- **Convergence gate (removed).** `_solve` returns just `gfu`; `solve_rve` returns
+  `(gfu, mesh)`. The old post-hoc `rel_residual < rtol` boolean, the drivers'
+  `while not convergence:` ω-nudging retry, and the hex driver's `convergence=True`
+  override are all gone. `_solve` still *prints* the relative residual as a
+  diagnostic. (Callers must unpack the 2-tuple: `gfu, mesh = solve_rve(...)`.)
 - DOF count grows roughly as `2 · (#interior GB segments)` (normal multiplier
   only — free sliding dropped the tangential one) plus `4 · (#outer pairs)` plus
   the junction scalars (`2 · #junctions` reservoirs + `2 · #edge-incidences`
-  fluxes) plus `6` RBM scalars, on top of the bulk H1². For ~100-grain seeds the
-  bulk dominates.
+  fluxes) plus `6` RBM scalars, on top of the bulk H1². With `Compress`+`definedon`
+  the multiplier blocks are tiny and the bulk H1² dominates (seed_1: 0.26M of 0.27M).
 - `build_spaces` checks `Trial arity == name_order_trial`; if you add a new
   multiplier block you must update **both** the space list and the name list,
   or this assertion fires.
@@ -178,8 +208,10 @@ ln ω ∈ [−10, 10]). Facts a future session needs:
   distributed not single-Debye). The same `τ_M` also scales the output-loss
   prefactor. Hex benchmark: `η_ss=2.418e-5`, `G_U=0.8211`, `τ_M=2.944e-5`.
 - **Solver caveat:** at low ω `C'` is ~1e-18; only `solver='direct'` resolves it.
-  CG (`rtol=1e-8`) + the drivers' forced `convergence=True` re-floors `C'` and
-  re-hides the divergence — use direct for trustworthy low-ω points.
+  CG (`rtol=1e-8`) re-floors `C'` at the residual level and re-hides the
+  divergence — use `solver='direct'` for trustworthy low-ω points. (The drivers'
+  forced `convergence=True` override and ω-retry loop have been removed; the
+  drivers still default to `solver='cg'`, so flip to direct for the `1/ω` tail.)
 
 References: Raj & Ashby (1971) coupled model; Rudge (2025, App. A) the GB
 diffusion law actually used; Ghahremani (1980) hex EAGBS limit; Lee & Morris
@@ -230,10 +262,10 @@ solid side of the ω≈1 crossover — widen the low end if the creep tail is wa
 - **Maxwell time is calibrated** (`τ_M=η_ss/G_U`, per geometry — see the section
   above); `C_d` is still a *nondimensional* group, not anchored to a physical
   `η_Coble=(kT/ΩδD^gb)·L³`. Anchoring to lab units is the remaining step.
-- **Drivers still use `solver='cg'` + forced `convergence=True`** (user's testing
-  scaffolding — see agent memory). That re-floors `C'` at low ω and hides the
-  divergence; a production sweep that wants the `1/ω` tail must use `solver='direct'`.
-  (Calibration itself is robust to this — `η_ss`/`G_U` come from CG-converged
-  points.)
+- **Drivers default to `solver='cg'`** (the forced `convergence=True` override and
+  ω-retry loop are now removed — see "Convergence gate"). CG re-floors `C'` at low ω
+  and hides the `1/ω` divergence; a production sweep that wants the tail must pass
+  `solver='direct'`. (Calibration is robust to this — `η_ss`/`G_U` come from
+  well-conditioned CG points.)
 - The legacy corner pin (`_add_corner_penalty`, `remove_rbm=False`) is kept only
   for comparison; it floors `C'`. Default is the stress-free RBM removal.

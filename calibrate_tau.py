@@ -125,24 +125,38 @@ def measure_tau_M(spaces, mesh, contact_pairs, outer_contact_pairs,
     """
     gb_normal_indices = spaces[4]
 
+    print("=" * 70, flush=True)
+    print(f"[calibrate_tau] measure_tau_M: {num_grains} grains, nu={nu}, mu={mu}, "
+          f"solver='{solver}', rtol={rtol:g}", flush=True)
+    print("=" * 70, flush=True)
+
     # G_U: omega-independent, diffusion-off (normal-locked) elastic limit.
-    gfu, mesh, conv_GU = solve_rve(
+    print(f"[calibrate_tau] solve 1/2: G_U  (diff_coeff=0, omega={ref_omega:g}) ...",
+          flush=True)
+    gfu, mesh = solve_rve(
         spaces, mesh, contact_pairs, outer_contact_pairs, SHEAR,
         nu=nu, mu=mu, omega=ref_omega, solver=solver, rtol=rtol,
         junction_incidence=junction_incidence, diff_coeff=0.0)
     G_U = storage_modulus(gfu, mesh, nu, mu, num_grains)
+    print(f"[calibrate_tau] solve 1/2 done: G_U = {G_U:.6e}", flush=True)
 
     # eta_ss: low-omega C''/omega plateau at the uncalibrated reference C_d=1.
-    gfu, mesh, conv_eta = solve_rve(
+    print(f"[calibrate_tau] solve 2/2: eta_ss  (diff_coeff=1, omega={low_omega:g}) ...",
+          flush=True)
+    gfu, mesh = solve_rve(
         spaces, mesh, contact_pairs, outer_contact_pairs, SHEAR,
         nu=nu, mu=mu, omega=low_omega, solver=solver, rtol=rtol,
         junction_incidence=junction_incidence, diff_coeff=1.0)
     Cpp = diffusional_loss(gfu, mesh, contact_pairs, gb_normal_indices,
                            low_omega, diff_coeff=1.0)
     eta_ss = Cpp / low_omega
+    print(f"[calibrate_tau] solve 2/2 done: eta_ss = {eta_ss:.6e} "
+          f"(C''={Cpp:.6e})", flush=True)
 
     tau_M = eta_ss / G_U
     info = dict(eta_ss=eta_ss, G_U=G_U, tau_M=tau_M,
-                ln_crossover=float(np.log(1.0 / tau_M)),
-                conv_GU=conv_GU, conv_eta=conv_eta)
+                ln_crossover=float(np.log(1.0 / tau_M)))
+    print(f"[calibrate_tau] RESULT: tau_M = eta_ss/G_U = {tau_M:.6e}  "
+          f"(ln(1/tau_M) = {info['ln_crossover']:.4f})", flush=True)
+    print("=" * 70, flush=True)
     return tau_M, info

@@ -77,7 +77,11 @@ def _add_gb_normal_coupling(a, mesh, sym, contact_pairs, region_kind):
             (r_n_Re, r_n_Im)
         )
         cb.AddIntegrator(term4 + term5)
-        cb.Update(bf=a, intorder=12, maxdist=1e-9, both_sides=False)
+        # intorder=4: the integrand is t_n (order_gb=1) x [u_n] (order_bulk=2
+        # trace) on a straight interface -> ~cubic, exact at order 4. The old
+        # order 12 was ~3x the quadrature points per contact for no accuracy
+        # gain, paid over every interface (~1200 cb.Update calls per assembly).
+        cb.Update(bf=a, intorder=4, maxdist=1e-9, both_sides=False)
 
 
 def _add_gb_diffusion(a, mesh, sym, contact_pairs, omega, diff_coeff=None):
@@ -391,35 +395,41 @@ def _solve(a, f, fes, solver, rtol):
     """Solve the saddle system with Pardiso or CG and report the relative residual."""
     from ngsolve.krylovspace import CGSolver
 
+    print(f"[solve] solver='{solver}', ndof={fes.ndof}, rtol={rtol:g}", flush=True)
+
     if solver == "direct":
         with TaskManager():
+            print("[solve] assembling system ...", flush=True)
             a.Assemble()
             f.Assemble()
 
             gfu = GridFunction(fes)
+            print("[solve] Pardiso direct factorise+solve ...", flush=True)
             gfu.vec.data = a.mat.Inverse(inverse="pardiso") * f.vec
 
             rel_residual = Norm(a.mat * gfu.vec.data - f.vec.data) / Norm(f.vec.data)
-        print(f"Relative residual: {rel_residual:e}")
-        convergence = bool(rel_residual < rtol)
-        return gfu, convergence
+        print(f"[solve] relative residual: {rel_residual:e}", flush=True)
+        return gfu
 
     else:
         with TaskManager():
+            print("[solve] assembling system + multigrid preconditioner ...", flush=True)
             a.Assemble()
             f.Assemble()
             c = Preconditioner(a, "multigrid")
             c.Update()
 
             gfu = GridFunction(fes)
+            # printrates=True -> one line per CG iteration (survives batch-log
+            # redirection; '\r' single-line updates get swallowed in .out files).
+            print("[solve] CG iterating (maxiter=50) ...", flush=True)
             inv = CGSolver(mat=a.mat, pre=c.mat,
-                           printrates='\r', maxiter=50, tol=rtol)
+                           printrates=True, maxiter=50, tol=rtol)
             gfu.vec.data = inv * f.vec
 
             rel_residual = Norm(a.mat * gfu.vec.data - f.vec.data) / Norm(f.vec.data)
-        print(f"Relative residual: {rel_residual:e}")
-        convergence = bool(rel_residual < rtol)
-        return gfu, convergence
+        print(f"[solve] relative residual: {rel_residual:e}", flush=True)
+        return gfu
 
 # --- public API ---
 def build_spaces(mesh, contact_pairs, outer_contact_pairs=None, order_bulk=2, order_gb=1,
@@ -439,9 +449,14 @@ def build_spaces(mesh, contact_pairs, outer_contact_pairs=None, order_bulk=2, or
     # continuous across the core/slide split.
     for (a, b), (_, right) in contact_pairs.items():
         bdry = mesh.Boundaries(f"core_{right}.*|slide_{right}")
+        # Compress: a definedon-restricted H1 still allocates FULL-mesh ndof
+        # (only the off-region dofs are flagged unused). With ~hundreds of GB
+        # edges that stacks to millions of dead dofs (seed_1: 8M -> the solve
+        # froze). Compress drops the unused dofs so each space is ~#edge-nodes
+        # (~17) instead of #mesh-vertices (~18k) -- a ~1000x shrink per space.
         gb_spaces += [
-            H1(mesh, order=order_gb, definedon=bdry),  # Re_n
-            H1(mesh, order=order_gb, definedon=bdry),  # Im_n
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),  # Re_n
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),  # Im_n
         ]
         name_order_trial += [
             f"t_{a}_{b}_n_Re", f"t_{a}_{b}_n_Im"
@@ -462,10 +477,10 @@ def build_spaces(mesh, contact_pairs, outer_contact_pairs=None, order_bulk=2, or
         boundary_expr = f"{core_expr}|slide_{plus_prefix}" if core_expr else f"slide_{plus_prefix}"
         bdry = mesh.Boundaries(boundary_expr)
         outer_spaces += [
-            H1(mesh, order=order_gb, definedon=bdry),
-            H1(mesh, order=order_gb, definedon=bdry),
-            H1(mesh, order=order_gb, definedon=bdry),
-            H1(mesh, order=order_gb, definedon=bdry),
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),
+            Compress(H1(mesh, order=order_gb, definedon=bdry)),
         ]
         name_order_trial += [
             f"t_{edge_key}_s_Re", f"t_{edge_key}_s_Im",
@@ -482,16 +497,30 @@ def build_spaces(mesh, contact_pairs, outer_contact_pairs=None, order_bulk=2, or
 
     # Triple-junction coupling unknowns (exact Lagrange): one reservoir potential
     # mu_J per junction and one flux multiplier lambda_{e,J} per incident edge.
-    # All are global scalars (NumberSpace, one DOF each); complex -> Re+Im pair.
+    # These are scalar (one DOF each); complex -> Re+Im pair. CRITICAL: each is
+    # restricted with definedon to its junction stub region. A plain
+    # NumberSpace(mesh) is a GLOBAL dof that NGSolve treats as present on every
+    # element -> with ~hundreds of junctions the compound assembly explodes
+    # (measured: >14 min vs 4 s for the same elastic assemble). definedon makes
+    # the dof local to its stub BND elements (absent on all VOL elements), so
+    # assembly stays cheap. The coupling math is unchanged: _add_gb_junction_coupling
+    # integrates each block over ds(stub), where these multipliers are present.
     junction_spaces = []
     junctions = junction_incidence or {}
     n_lambda = 0
     for jid in sorted(junctions.keys()):
-        junction_spaces += [NumberSpace(mesh), NumberSpace(mesh)]
+        incident_stubs = [stub for _edge, stub in junctions[jid]]
+        # mu_J appears in the constraint on EVERY incident stub -> span their union.
+        mu_region = mesh.Boundaries("|".join(incident_stubs))
+        junction_spaces += [NumberSpace(mesh, definedon=mu_region),
+                            NumberSpace(mesh, definedon=mu_region)]
         name_order_trial += [f"mu_j{jid}_Re", f"mu_j{jid}_Im"]
         name_order_test += [f"rho_j{jid}_Re", f"rho_j{jid}_Im"]
         for (a, b), _stub in junctions[jid]:
-            junction_spaces += [NumberSpace(mesh), NumberSpace(mesh)]
+            # lambda_{e,J} lives only on edge e's own stub at this junction.
+            lam_region = mesh.Boundaries(_stub)
+            junction_spaces += [NumberSpace(mesh, definedon=lam_region),
+                                NumberSpace(mesh, definedon=lam_region)]
             name_order_trial += [f"lam_{a}_{b}_j{jid}_Re", f"lam_{a}_{b}_j{jid}_Im"]
             name_order_test += [f"xi_{a}_{b}_j{jid}_Re", f"xi_{a}_{b}_j{jid}_Im"]
             n_lambda += 1
@@ -571,7 +600,7 @@ def solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
     mu=1.0,
     omega=1.0,
     solver='direct',
-    rtol=1e-4,
+    rtol=1e-8,
     corner_bnd=None,
     junction_incidence=None,
     remove_rbm=True,
@@ -619,7 +648,7 @@ def solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
         _add_rbm_constraints(a, f, mesh, sym, CF_u, rot_target)
     else:
         _add_corner_penalty(a, f, mesh, sym, CF_u, corner_bnd)
-    gfu, convergence = _solve(a, f, fes, solver, rtol)
+    gfu = _solve(a, f, fes, solver, rtol)
 
-    return gfu, mesh, convergence
+    return gfu, mesh
 
