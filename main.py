@@ -422,9 +422,9 @@ def _solve(a, f, fes, solver, rtol):
             gfu = GridFunction(fes)
             # printrates=True -> one line per CG iteration (survives batch-log
             # redirection; '\r' single-line updates get swallowed in .out files).
-            print("[solve] CG iterating (maxiter=50) ...", flush=True)
+            print("[solve] CG iterating (maxiter=400) ...", flush=True)
             inv = CGSolver(mat=a.mat, pre=c.mat,
-                           printrates=True, maxiter=50, tol=rtol)
+                           printrates=True, maxiter=400, tol=rtol)
             gfu.vec.data = inv * f.vec
 
             rel_residual = Norm(a.mat * gfu.vec.data - f.vec.data) / Norm(f.vec.data)
@@ -599,7 +599,7 @@ def solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
     nu=0.30,
     mu=1.0,
     omega=1.0,
-    solver='direct',
+    solver='cg',
     rtol=1e-8,
     corner_bnd=None,
     junction_incidence=None,

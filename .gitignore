@@ -6,3 +6,29 @@ venv/
 .env
 .ipynb_checkpoints/
 .DS_Store
+
+# --- Generated outputs / large artifacts (keep code + inputs only) ---
+*.csv
+*.out
+*.log
+*.txt
+*.vtu
+*.pvd
+*.gif
+*.html
+*.pdf
+# solver merge/backup sidecars
+*.premerge
+*.prehigh
+*.bad
+*.base_only_bak
+# bulky output dirs / tooling caches
+vtu_out/
+.understand-anything/
+
+# Figures: ignore generated PNGs everywhere, but keep documentation figures
+*.png
+!docs/*.png
+
+# Kept on purpose (experiment inputs): *.json, *.ply are NOT ignored
+

@@ -1,241 +1,161 @@
-# DAGBS frequency sweep driver: computes complex shear and normal stiffness for
-# each tessellation seed and saves per-seed CSVs. Dissipation comes from the
-# grain-boundary diffusion channel (∫|∂ₛt_n|²).
+# PROPORTIONALLY-REFINED frequency sweep for the small-grain ratio family
+# (adapted from csd3_deploy/refine_test/real_im_energy_refine.py).
+#
+# The ratio-sweep geometries (gen_sweep.py -> tessellation_output.json, keys
+# `ratio_<r>`) have controlled small grains whose facets go down to ~4e-5 --
+# far below maxh -- so the meshes_refine.MakeMesh per-facet proportional
+# refinement (element size = L*refine_frac on facets with L < refine_cut) is
+# REQUIRED to resolve them. The expected physics is a secondary DAGBS loss
+# peak whose frequency scales as the controlled facet length L^{-2..-3}.
+#
+# solver='cg' throughout (standing directive: never direct). Shear branch
+# only. CSV is written after every frequency so a walltime kill still leaves
+# a usable partial curve.
+#
+#   python real_im_energy_refine.py --idx 0 --den 100          # largest ratio
+#   python real_im_energy_refine.py --key ratio_2.000e-04 --den 100
+#   python real_im_energy_refine.py --idx 0 --den 0            # no refinement
+#
+# Solver modules (main/physics/calibrate_tau) are imported unmodified from
+# the repo root (falling back to a csd3_deploy sigma dir on CSD3); only
+# MakeMesh comes from the local meshes_refine.py copy.
 
-
-from main import solve_rve, build_spaces
-from meshes import MakeMesh
-from physics import *
-from calibrate_tau import measure_tau_M
-from ngsolve import *
 import os
-import pandas as pd
-import numpy as np
-from mpi4py import MPI
+import sys
 import json
 import argparse
+import numpy as np
+import pandas as pd
+
+# The folder is self-contained: local copies of main.py (maxiter=400),
+# physics.py, calibrate_tau.py, meshes_refine.py all live here and shadow
+# any repo-root versions.
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from meshes import MakeMesh               # noqa: E402  (master mesh module, refine-capable)
+from main import solve_rve, build_spaces  # noqa: E402
+from physics import *                     # noqa: E402
+from calibrate_tau import measure_tau_M   # noqa: E402
+from ngsolve import *                     # noqa: E402
+from mpi4py import MPI                    # noqa: E402
 
 SetNumThreads(8)
 
-
-parser = argparse.ArgumentParser(
-    description="Compute real/imag stiffness sweep for a range of seeds (energy-based)"
-)
-parser.add_argument(
-    "seed_start",
-    type=int,
-    nargs="?",
-    help="First seed id to process (inclusive)"
-)
-parser.add_argument(
-    "seed_end",
-    type=int,
-    nargs="?",
-    help="Upper bound (exclusive) for seeds"
-)
-parser.add_argument(
-    "--refine_h",
-    type=float,
-    default=None,
-    help="optional target element size at triple junctions/corners (off by default)"
-)
-args = parser.parse_args()
-
 NU = 0.35
 MU = 1.0
-# The GB diffusion coefficient C_d is the per-geometry Maxwell time tau_M,
-# measured at runtime by measure_tau_M (one call per seed). It is BOTH the
-# diff_coeff passed to solve_rve AND the output-loss prefactor, so the omega
-# axis reads omega*tau_M and the crossover sits at omega = 1.
-MACRO_SCALE = 1e-3  # Gamma scaling applied in _setup_material_properties
-LN_OMEGA_MIN = -3.0
-LN_OMEGA_MAX = 10.0
-OMEGA_SAMPLES = 100
+MACRO_SCALE = 1e-3
+GAMMA = ((0, 1), (0, 0))                  # shear
 
 
-def compute_energy_metrics(gfu, mesh, contact_pairs, gb_normal_indices, omega, area, diff_coeff, num_grains):
-    """Return bulk storage and GB diffusional dissipation for one solution."""
-    uR = gfu.components[0]
-    uI = gfu.components[1]
-
+def compute_energy_metrics(gfu, mesh, contact_pairs, gb_normal_indices, omega,
+                           area, diff_coeff, num_grains):
+    uR, uI = gfu.components[0], gfu.components[1]
     lam = 2 * MU * NU / (1 - 2 * NU)
-
-    epsR = strain(uR)
-    epsI = strain(uI)
-    sigR = stress(uR, lam, MU)
-    sigI = stress(uI, lam, MU)
-
-    storage_density = InnerProduct(sigR, epsR) + InnerProduct(sigI, epsI)
-
-    # Integrate grain by grain and sum
-    bulk_storage_total = 0.0
-    for grain_id in range(1, num_grains + 1):
-        grain_region = mesh.Materials(f"region_{grain_id}")
-        grain_storage = float(Integrate(storage_density, mesh, VOL, definedon=grain_region))
-        bulk_storage_total += grain_storage
-
-    bulk_storage = 0.5 * bulk_storage_total / area
-
-    # GB diffusional dissipation ∝ ∫|∂ₛt_n|² over the whole boundary (core∪slide)
+    storage_density = (InnerProduct(stress(uR, lam, MU), strain(uR)) +
+                       InnerProduct(stress(uI, lam, MU), strain(uI)))
+    bulk = 0.0
+    for g in range(1, num_grains + 1):
+        bulk += float(Integrate(storage_density, mesh, VOL,
+                                definedon=mesh.Materials(f"region_{g}")))
+    bulk_storage = 0.5 * bulk / area
     gb_energy = 0.0
     for (a, b), (_, right_name) in contact_pairs.items():
         region = mesh.Boundaries(f"core_{right_name}.*|slide_{right_name}")
         idx_re, idx_im = gb_normal_indices[(a, b)]
-
-        t_n_re = gfu.components[idx_re]
-        t_n_im = gfu.components[idx_im]
-        gtr, gti = Grad(t_n_re).Trace(), Grad(t_n_im).Trace()
+        gtr = Grad(gfu.components[idx_re]).Trace()
+        gti = Grad(gfu.components[idx_im]).Trace()
         flux_sq = InnerProduct(gtr, gtr) + InnerProduct(gti, gti)
         gb_energy += float(Integrate(flux_sq, mesh, BND, definedon=region))
-
     gb_diss = 0.5 * diff_coeff * gb_energy / area / omega
-    total_diss = gb_diss
-
-    return bulk_storage, total_diss
+    return bulk_storage, gb_diss
 
 
-def run_branch(Gamma, gamma_tag, mesh, spaces, contact_pairs, outer_contact_pairs,
-               corner_penalty_label, gb_normal_indices, num_grains, seedname,
-               diff_coeff, junction_incidence=None):
-    """Sweep omega for one macro loading tensor and dump energy curves.
+def main():
+    ap = argparse.ArgumentParser()
+    sel = ap.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--idx", type=int, help="geometry index in tessellation_output.json (0 = largest ratio)")
+    sel.add_argument("--key", type=str, help="geometry key, e.g. ratio_2.000e-04")
+    ap.add_argument("--den", type=float, required=True,
+                    help="refine denominator: element size = L/den on short facets; <=0 => baseline (no proportional refine)")
+    ap.add_argument("--refine_cut", type=float, default=0.02,
+                    help="only facets shorter than this are proportionally refined")
+    ap.add_argument("--maxh", type=float, default=0.1)
+    ap.add_argument("--core_frac", type=float, default=0.01)
+    ap.add_argument("--lnmin", type=float, default=-3.0)
+    ap.add_argument("--lnmax", type=float, default=25.0)
+    ap.add_argument("--npts", type=int, default=140)
+    ap.add_argument("--outtag", type=str, default="",
+                    help="suffix inserted in the output filename, e.g. _wide "
+                         "(avoids overwriting an existing production CSV)")
+    args = ap.parse_args()
 
-    diff_coeff is this seed's Maxwell time tau_M (folded into the form and the
-    loss prefactor), so the omega axis reads omega*tau_M.
-    """
-
-    print("Starting with single Gamma:", Gamma)
-    ln_omega = np.linspace(LN_OMEGA_MIN, LN_OMEGA_MAX, OMEGA_SAMPLES)
-
-    storage_vals = []
-    diss_total_vals = []
-
-    for j in range(len(ln_omega)):
-        omegai = np.exp(ln_omega[j])
-        print("Current omega: ", omegai)
-        gfu, mesh = solve_rve(
-            spaces,
-            mesh,
-            contact_pairs,
-            outer_contact_pairs,
-            Gamma,
-            nu=NU,
-            mu=MU,
-            omega=omegai,
-            solver='cg',
-            rtol=1e-8,
-            corner_bnd=corner_penalty_label,
-            junction_incidence=junction_incidence,
-            diff_coeff=diff_coeff,
-        )
-
-        area = float(Integrate(1, mesh, VOL))
-        storage, total_diss = compute_energy_metrics(
-            gfu,
-            mesh,
-            contact_pairs,
-            gb_normal_indices,
-            omegai,
-            area,
-            diff_coeff,
-            num_grains,
-        )
-        storage_vals.append(storage)
-        diss_total_vals.append(total_diss)
-
-    omega_vals = np.exp(ln_omega)
-    modulus_scale = 2.0 / (MACRO_SCALE ** 2)
-    if gamma_tag == "shear":
-        comp_name = "Cxyxy"
-    elif gamma_tag == "normal_x":
-        comp_name = "Cxxxx"
-    else:
-        comp_name = "Cyyyy"
-
-    df = pd.DataFrame({
-        'ln_omega': ln_omega,
-        'omega': omega_vals,
-        'E_storage': storage_vals,
-        'E_diss_total': diss_total_vals,
-        f'{comp_name}_real': modulus_scale * np.array(storage_vals),
-        f'{comp_name}_imag': modulus_scale * np.array(diss_total_vals),
-    })
-    out_path = 'Seed_{}_energy_real_im_data_{}.csv'.format(seedname, gamma_tag)
-    df.to_csv(out_path, index=False)
-    print(f"Saved energy curves to {out_path}")
-
-    return mesh  # Return potentially updated mesh
-
-
-with open("tessellation_output.json", "r") as f:
-    data = json.load(f)
-
-seed_keys = [key for key in data if key.startswith("seeds_")]
-if seed_keys:
-    seeds = sorted(int(key.split("_")[1]) for key in seed_keys)
-else:
-    seeds = list(range(1, len(data) + 1))
-
-if args.seed_start is not None:
-    if args.seed_end is None:
-        parser.error("seed_end is required when specifying seed_start")
-    if args.seed_start >= args.seed_end:
-        parser.error("seed_start must be less than seed_end")
-    seeds = list(range(args.seed_start, args.seed_end))
-
-print(seeds)
-for seed in seeds:
-    seedname = "seeds_{}".format(seed)
-    print("Processing ", seedname)
-    pts, regions = data[seedname]
+    refine_frac = None if args.den <= 0 else 1.0 / args.den
+    tag = "base" if refine_frac is None else f"{int(round(args.den))}"
+    tess_path = os.path.join(HERE, "tessellation_output.json")
+    with open(tess_path) as f:
+        data = json.load(f)
+    key = args.key if args.key is not None else list(data.keys())[args.idx]
+    pts, regions = data[key]
     num_grains = len(regions)
+    out_path = os.path.join(HERE, f"refine_{key}_frac{tag}{args.outtag}_shear.csv")
 
-    try:
-        (
-            _, _, mesh, _,
-            contact_pairs,
-            outer_contact_pairs,
-            corner_bnd_label,
-            _outer_core_labels,
-            junction_incidence,
-        ) = MakeMesh(
-            pts,
-            regions,
-            maxh=0.1,
-            comm=MPI.COMM_WORLD,
-            core_frac=0.01,
-            refine_h=args.refine_h,
-        )
-    except Exception as e:
-        print(f"MakeMesh failed for {seedname}: {e}")
-        continue
+    print(f"=== {key} ({num_grains} grains), refine_frac={refine_frac} "
+          f"(L/{tag}), cut={args.refine_cut} ===", flush=True)
 
-    penalty_boundaries = []
+    (_, _, mesh, _, contact_pairs, outer_contact_pairs, corner_bnd_label,
+     _ocl, junction_incidence) = MakeMesh(
+        pts, regions, maxh=args.maxh, comm=MPI.COMM_WORLD,
+        core_frac=args.core_frac, refine_h=None,
+        refine_frac=refine_frac, refine_cut=args.refine_cut)
+    print(f"  mesh: nv={mesh.nv}  ne={mesh.ne}", flush=True)
+
+    pen = []
     if corner_bnd_label:
-        if isinstance(corner_bnd_label, (list, tuple, set)):
-            penalty_boundaries.extend(name for name in corner_bnd_label if name)
-        else:
-            penalty_boundaries.append(corner_bnd_label)
-    penalty_boundaries = list(dict.fromkeys(penalty_boundaries))
-    corner_penalty_label = "|".join(penalty_boundaries) if penalty_boundaries else None
+        pen = list(corner_bnd_label) if isinstance(corner_bnd_label, (list, tuple, set)) \
+            else [corner_bnd_label]
+    pen = [p for p in dict.fromkeys(pen) if p]
+    corner_penalty_label = "|".join(pen) if pen else None
 
-    spaces = build_spaces(
-        mesh,
-        contact_pairs,
-        outer_contact_pairs,
-        order_bulk=2,
-        order_gb=1,
-        junction_incidence=junction_incidence,
-    )
+    spaces = build_spaces(mesh, contact_pairs, outer_contact_pairs,
+                          order_bulk=2, order_gb=1,
+                          junction_incidence=junction_incidence)
     gb_normal_indices = spaces[4]
+    print(f"  ndof={spaces[0].ndof}", flush=True)
 
-    # Calibrate this seed's Maxwell time tau_M = eta_ss / G_U (2 solves), then
-    # fold it into every branch so the omega axis reads omega*tau_M.
-    tau_M, tau_info = measure_tau_M(
-        spaces, mesh, contact_pairs, outer_contact_pairs,
-        junction_incidence, num_grains=num_grains, nu=NU, mu=MU)
-    print(f"{seedname}: calibrated tau_M = {tau_M:.6e} "
-          f"(eta_ss={tau_info['eta_ss']:.4e}, G_U={tau_info['G_U']:.4e})")
+    tau_M, info = measure_tau_M(spaces, mesh, contact_pairs, outer_contact_pairs,
+                                junction_incidence, num_grains=num_grains, nu=NU, mu=MU)
+    print(f"  tau_M={tau_M:.6e} (eta_ss={info['eta_ss']:.4e}, G_U={info['G_U']:.4e})",
+          flush=True)
 
-    mesh = run_branch(((0, 1), (0, 0)), "shear", mesh, spaces, contact_pairs,
-                      outer_contact_pairs, corner_penalty_label, gb_normal_indices,
-                      num_grains, seedname, tau_M, junction_incidence=junction_incidence)
+    ln_grid = np.linspace(args.lnmin, args.lnmax, args.npts)
+    modulus_scale = 2.0 / (MACRO_SCALE ** 2)
+    rows = []
+    for k, lw in enumerate(ln_grid):
+        omegai = float(np.exp(lw))
+        gfu, mesh2 = solve_rve(spaces, mesh, contact_pairs, outer_contact_pairs,
+                               GAMMA, nu=NU, mu=MU, omega=omegai, solver='cg',
+                               rtol=1e-8, corner_bnd=corner_penalty_label,
+                               junction_incidence=junction_incidence, diff_coeff=tau_M)
+        area = float(Integrate(1, mesh2, VOL))
+        storage, diss = compute_energy_metrics(
+            gfu, mesh2, contact_pairs, gb_normal_indices, omegai, area, tau_M, num_grains)
+        rows.append(dict(ln_omega=lw, omega=omegai, E_storage=storage,
+                         E_diss_total=diss,
+                         Cxyxy_real=modulus_scale * storage,
+                         Cxyxy_imag=modulus_scale * diss))
+        pd.DataFrame(rows).to_csv(out_path, index=False)     # incremental
+        q = diss / storage if storage > 0 else float("nan")
+        print(f"  [{k+1}/{len(ln_grid)}] ln={lw:+.2f}  C'={modulus_scale*storage:.4e}"
+              f"  C''={modulus_scale*diss:.4e}  Q^-1={q:.4e}", flush=True)
+
+    with open(out_path.replace(".csv", "_meta.txt"), "w") as f:
+        f.write(f"key={key} den={tag} refine_frac={refine_frac} "
+                f"refine_cut={args.refine_cut}\n")
+        f.write(f"tau_M={tau_M:.8e} eta_ss={info['eta_ss']:.6e} G_U={info['G_U']:.6e}\n")
+        f.write(f"nv={mesh.nv} ne={mesh.ne} ndof={spaces[0].ndof}\n")
+    print(f"  saved {out_path}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

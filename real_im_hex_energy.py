@@ -21,9 +21,9 @@ MU = 1.0
 # passed to solve_rve AND the output-loss prefactor, so code-omega == omega*tau_M
 # and the fluid<->solid crossover sits at omega = 1.
 MACRO_SCALE = 1e-3  # Gamma scaling applied in _setup_material_properties
-LN_OMEGA_MIN = -10.0
-LN_OMEGA_MAX = 10.0
-OMEGA_SAMPLES = 100
+LN_OMEGA_MIN = -3.0
+LN_OMEGA_MAX = 25.0
+OMEGA_SAMPLES = 140
 
 
 def compute_energy_metrics(gfu, mesh, contact_pairs, gb_normal_indices, omega, area, diff_coeff, num_grains=6):

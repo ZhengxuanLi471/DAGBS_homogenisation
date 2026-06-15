@@ -1,0 +1,825 @@
+\documentclass[12pt]{article}
+\usepackage{graphicx, mathtools, natbib,amssymb, float,xspace,color,amsmath,mathrsfs}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{appendix}
+
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+
+
+\newcommand{\Grad}{\nabla}
+\newcommand{\Div}{\Grad\cdot}
+\newcommand{\Curl}{\Grad\times}
+\newcommand{\delsq}{\Grad^2}
+\newcommand{\pd}[2]{\frac{\partial{#1}}{\partial{#2}}}
+\newcommand{\ld}[2]{\frac{\text{D}{#1}}{\text{D}{#2}}}
+\newcommand{\fd}[2]{\frac{\text{d}{#1}}{\text{d}{#2}}}
+\newcommand{\e}{\text{e}}
+\newcommand{\dirac}{\delta}
+\newcommand{\identity}{\tensor{I}}
+\newcommand{\pos}{\mathbf{x}}
+\newcommand{\vel}{v}
+\newcommand{\nvec}{\mathbf{n}}
+\newcommand{\tensor}[1]{\underline{\underline{\boldsymbol{#1}}}}
+\newcommand{\vect}[1]{\underline{\boldsymbol{#1}}}
+\newcommand{\jump}[1]{[\![#1]\!]}
+\newcommand{\pair}[1]{\boldsymbol{#1}}
+\newcommand{\secondinv}{\dot{\varepsilon}_{II}}
+\newcommand{\deltacmp}{\delta_\mathcal{C}}
+\newcommand{\heavi}{\mathcal{H}}
+\newcommand{\sr}[1]{\noindent{\textcolor{red}{\textsl{SR: #1\xspace}}}}
+
+
+\title{Elastically and diffusion accommodated grain boundary sliding}
+\author{Zhengxuan Li}
+\date{October 2025}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Add in abstract
+\end{abstract}
+\section{Elastically accommodated grain boundary sliding}
+\subsection{Motivation}
+To understand the thermal distribution inside the Earth, seismic data are often relied upon. Seismic propagation in the hot mantle is affected by both elastic and anelastic properties. Most seismological studies of the upper mantle use a power-law relationship in which attenuation depends weakly on frequency. However, this relationship applies only to low-frequency waves ($10^{-3}$–$10^{-1}$~Hz) and is not valid up to infinite frequencies \citep{karato_causality_2025}. There are additional mechanisms responsible for substantial reductions in velocity. Elastically accommodated grain boundary sliding (EAGBS) is likely one such mechanism. Previous numerical studies have explored EAGBS in simple geometries such as bi-crystals \citep{ghahremani_effect_1980} and hexagonal tessellations \citep{lee_anelasticity_2010}, but these do not represent real rocks, where grains are irregular and have a distribution of sizes. This study aims to investigate how variations in grain shapes and sizes affect attenuation due to EAGBS, to produce results testable by experiments, and to compare them against seismic observations.
+
+\subsection{Theory}
+\subsubsection{Governing equations}
+The interiors of the grains are treated as purely elastic and isotropic, with conservation of momentum:
+\begin{equation}
+    \Div \tensor{\sigma} = \boldsymbol{0}, \label{eq:conservation of momentum}
+\end{equation}
+where $\tensor{\sigma}$ is the Cauchy stress tensor linked to the strain tensor $\tensor{\varepsilon}$ by the constitutive law.  
+The right-hand side is $\boldsymbol{0}$ because the wavelength of elastic waves is much larger than the grain size of interest, and hence the elastostatic, rather than elastodynamic, equations are employed:
+\begin{equation}
+    \sigma_{ij} = \lambda \varepsilon_{kk} \delta_{ij} + 2\mu \varepsilon_{ij}. \label{eq:elastic constitutive law}
+\end{equation}
+The strain tensor is given by
+\begin{equation}
+    \varepsilon_{ij} = \frac{1}{2}\left(\pd{u_i}{x_j} + \pd{u_j}{x_i}\right), \label{eq:strain tensor}
+\end{equation}
+where $\vect{u}$ is the displacement, and $\lambda$ and $\mu$ are the first and second Lamé parameters.
+
+Grain boundaries slide viscously, described by a viscous constitutive relation and a normal constraint:
+\begin{equation}
+    l \sigma_{ns} = \eta \left[\pd{u_s}{t}\right], \label{eq:viscous}
+\end{equation}
+and
+\begin{equation}
+    [u_n] = 0. \label{eq:normal constrain}
+\end{equation}
+Equation~\ref{eq:viscous} states that the shear stress along the boundary is directly proportional to the jump in tangential velocity across the boundary, which is modeled as a thin liquid film having uniform viscosity $\eta$ and uniform thickness $l$ \citep{raj_grain_1971}. Equation~\ref{eq:normal constrain} enforces continuity of normal displacement across the boundary.
+
+\subsubsection{Rescaling}
+To simplify simulations and extract key parameters, the equations were non-dimensionalized based on characteristic grain size $a$ and amplitude of displacement $u_0$:
+\begin{subequations}
+\begin{align}
+    \vect{u} &= u_0 \vect{u}^\prime, \\
+    \tensor{\sigma} &= \frac{\mu u_0}{a} \tensor{\sigma}^\prime, \\
+    t &= t_\eta t^\prime, \\
+    \tensor{\varepsilon} &= \frac{u_0}{a} \tensor{\varepsilon}^\prime,
+\end{align}
+\label{eq:nondimensionlisation}
+\end{subequations}
+where $t_\eta$ is the sliding timescale and $\mu$ is the shear modulus of the grain:
+\begin{equation}
+    t_\eta = \frac{\eta_0 a}{l \mu}. \label{eq:sliding time}
+\end{equation}
+Here $\eta_0$ is some reference viscosity. With the non-dimensionalisation given in equations~\ref{eq:nondimensionlisation}–\ref{eq:sliding time}, and dropping primes for simplicity, equations~\ref{eq:conservation of momentum}, \ref{eq:viscous}, and \ref{eq:normal constrain} become
+\begin{equation}
+    \Div \tensor{\sigma} = \boldsymbol{0}, \label{eq:nondim ela}
+\end{equation}
+inside grains, and on grain boundaries:
+\begin{subequations}
+\begin{align}
+    \sigma_{ns} &=\frac{\eta}{\eta_0} \left[\pd{u_s}{t}\right], \label{eq:nondim slide}\\
+    [u_n] &= 0. \label{eq:normal constrain 1}
+\end{align}
+\end{subequations}
+For harmonic loading $\propto \e^{i\omega t}$, the time derivative becomes multiplication by $i\omega$, giving
+\begin{equation}
+    \sigma_{ns} = i\omega \frac{\eta}{\eta_0}[u_s]. \label{eq:laplace slide}
+\end{equation}
+
+\subsection{Discretisation}
+We solve the set of equations together with the boundary conditions in equations~\ref{eq:nondim ela}, \ref{eq:nondim slide}, and \ref{eq:normal constrain} in a representative volume element (RVE) large enough to capture macroscopic viscoelastic behavior. The RVE consists of multiple grains, and displacement is discontinuous across grain boundaries. We discretize the equations in the $H^1$ Sobolev space. Since $H^1$ basis functions are continuous across element interfaces, the RVE must be partitioned into subdomains, each containing a single grain or grain fragment.
+
+\subsubsection{On each grain}
+On a grain occupying domain $\Omega_i$, we test equation~\ref{eq:nondim ela} against a vector test function $\vect{v} \in H^1$. Applying Green’s theorem gives
+\begin{equation}
+    \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV
+    - \int_{\partial\Omega_i} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_i\, dS = 0, \label{eq: ingrain weak}
+\end{equation}
+where $(\cdot)^*$ denotes complex conjugation.
+
+\subsubsection{On grain boundaries} \label{gb}
+For neighboring grains $\Omega_i$ and $\Omega_j$, the boundary term over their shared interface $\Gamma_{GB} = \partial\Omega_i \cap \partial\Omega_j$ is
+\begin{equation}
+    \int_{\partial\Omega_i} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_i\, dS 
+    + \int_{\partial\Omega_j} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS
+    = \int_{\Gamma_{GB}} [\vect{v}]\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS,
+\end{equation}
+where $\vect{n}_j = -\vect{n}_i$ and $[\vect{v}] = \vect{v}_i - \vect{v}_j$.
+Decomposing traction $\tensor{\sigma}\cdot\vect{n}_j$ into normal and tangential components $t_n = \vect{n}\cdot\tensor{\sigma}\cdot\vect{n}$ and $t_s = \vect{s}\cdot\tensor{\sigma}\cdot\vect{n}$, and imposing $[v_n]=0$, we have
+\begin{equation}
+    \int_{\Gamma_{GB}} [\vect{v}]\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS = \int_{\Gamma_{GB}} [v_s]\, t_s^*\, +[v_n]t_n^*dS.
+\end{equation}
+
+We weakly enforce the grain-boundary sliding conditions, solving for unknown tractions with trial and test function pairs $\{t_s, t_n\}$ and $\{r_s, r_n\}$. From equations~\ref{eq:laplace slide} and \ref{eq:normal constrain 1}, multiplying by test functions $r_s$ and $r_n$ gives
+\begin{equation}
+    \frac{i}{\omega}\frac{\eta_0}{\eta}\int_{\Gamma_{GB}} t_s^* r_s\, dS = \int_{\Gamma_{GB}} [u_s]^* r_s\, dS.
+\end{equation}
+The total weak form is then
+\begin{equation}
+\begin{aligned}
+&\sum_i \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV \\
+&\quad - \int_{\Gamma_{GB}} [v_s]\, t_s^*\, dS 
+-\int_{\Gamma_{GB}} [u_s]^* r_s\, dS 
++ \frac{i}{\omega}\frac{\eta_0}{\eta}\int_{\Gamma_{GB}}t_s^* r_s\, dS  \\
+&\quad  - \int_{\Gamma_{GB}} [v_n]\, t_n^*\, dS 
+-\int_{\Gamma_{GB}} [u_n]^* r_n\, dS \\
+&\quad + \text{(RVE boundary terms)} = 0.
+\end{aligned}
+\end{equation}
+
+\subsubsection{On RVE boundaries}
+For a periodic RVE, the displacement can be decomposed as
+\begin{equation}
+    \vect{u}_{\text{total}} = \vect{U} + \vect{u},
+\end{equation}
+where $\vect{U}$ represents the macroscopic (rigid-body) part and $\vect{u}$ the local deformation.  
+Following the micro-polar model of \citet{rudge_micropolar_2021, rudge_viscoelastic_2025}, $\vect{U}$ is described by macroscopic strain and rotation tensors $\tensor{\Gamma}$ and $\tensor{K}$, giving
+\begin{equation}
+    [\vect{U}] = \tensor{\Gamma}\cdot\vect{R} + (\tensor{K}\cdot\vect{R})\times\vect{d},
+\end{equation}
+where $\vect{R}$ joins the centroids of neighboring RVEs and $\vect{d}$ joins the centroid of a neighboring RVE to a point on the boundary.  
+Here we upscale the model into a Cauchy continuum and neglect granular-scale rotation, so $\tensor{K} = \tensor{0}$ and $\tensor{\Gamma}$ is fully symmetric (identical to the macroscopic strain-rate tensor):
+\begin{equation}
+    [\vect{U}] = \tensor{\Gamma}\cdot\vect{R}.
+\end{equation}
+Using the same procedure as in Section~\ref{gb}, we obtain
+\begin{equation}
+\begin{aligned}
+&\sum_i \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV \\
+&\quad - \int_{\Gamma_{GB}} [v_s]\, t_s^*+[v_n]\, t_n^*\, dS 
+-\int_{\Gamma_{GB}} [u_s]^* r_s+[u_n]^* r_n\, dS 
++ \frac{i}{\omega}\frac{\eta_0}{\eta}\int_{\Gamma_{GB}} t_s^* r_s\, dS \\
+&\quad - \int_{\Gamma_\text{top}\cup\Gamma_\text{right}} ([v_s]\, t_s^* + [v_n]\, t_n^*)\, dS
+- \int_{\Gamma_\text{top}\cup\Gamma_\text{right}} ([u_s]^* r_s + [u_n]^* r_n)\, dS \\
+&= -\int_{\Gamma_\text{top}\cup\Gamma_\text{right}} \tensor{\Gamma}^*\cdot\vect{R}\cdot\vect{n}\, r_n\, dS
+   -\int_{\Gamma_\text{top}\cup\Gamma_\text{right}} \tensor{\Gamma}^*\cdot\vect{R}\cdot\vect{s}\, r_s\, dS.
+\end{aligned}
+\end{equation}
+\subsection{Calculation of effective stiffness tensor}
+The key result of the finite element calculation is the effective stiffness tensor $C_{ijkl}$. In 2-D, there are 6 independent components to the tensor, which can all be derived from the real and imaginary displacement field given a set of macroscopic deformation. In this section we outline the steps of calculating the stiffness tensor.
+We first apply simple shear:
+\begin{equation}
+    \Gamma_1 = \gamma\begin{pmatrix}
+        0&1\\
+        0&0
+    \end{pmatrix}
+\end{equation}
+where $\gamma$ is a small scalar denoting the magnitude of the strain. We next calculate the real and imaginary part of the stress tensor at each point using equation \ref{eq:elastic constitutive law} and \ref{eq:strain tensor}. The area average of the stress tensor is taken using
+\begin{equation}
+    \tensor{\sigma}^{ave} = \frac{1}{A}\int_{\Omega} \tensor{\sigma}(x,y)dxdy
+\end{equation} where $A$ is the area of the RVE.
+From the definition of the stiffness tensor,
+\begin{equation}
+    \sigma_{ij} = C_{ijkl}\varepsilon_{kl}
+\end{equation}
+we have:
+\begin{align}
+    C_{xyxy} = \sigma^{ave}_{xy}/\gamma\\
+    C_{xxxy} = \sigma^{ave}_{xx}/\gamma\\
+    C_{yyxy} = \sigma^{ave}_{yy}/\gamma
+\end{align}
+Similarly by taking $\Gamma_2 = \gamma\begin{pmatrix}
+    1&0\\
+    0&0
+\end{pmatrix}$, we have
+\begin{align}
+    C_{xxxx} = \sigma^{ave}_{xx}/\gamma\\
+    C_{yyxx} = \sigma^{ave}_{yy}/\gamma
+\end{align}
+
+and $\Gamma_3 = \gamma\begin{pmatrix}
+    0&0\\
+    0&1
+\end{pmatrix}$, we have
+\begin{equation}
+    C_{yyyy} = \sigma^{ave}_{yy}/\gamma
+\end{equation}
+Note that $C_{xyxy}$ is the effective shear modulus $\mu$.
+\subsection{Problems}
+
+In this section, we define a set of problems in terms of their dimensionality, initial conditions, and boundary conditions.
+
+\subsubsection{Tessellations of hexagons}
+
+We begin by formulating and solving the boundary value problem for 2-D tessellations of regular hexagons with side length $a$, as shown in Figure~\ref{fig:2dhex}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{2D_tessellation.png}
+    \caption{2-D tessellation of regular hexagons.}
+    \label{fig:2dhex}
+\end{figure}
+
+To simplify the calculation, we identify the smallest rectangular periodic cell (Figure~\ref{fig:2D_periodic}) as the representative volume element (RVE). This rectangle has width $3a$ and height $\sqrt{3}a$. The RVE is chosen such that its boundaries do not coincide with grain boundaries. This is important because periodic boundary conditions require continuous displacement across domain boundaries, while grain-boundary sliding introduces discontinuities in tangential displacement across grain boundaries.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{rve.png}
+    \caption{Rectangular domain that is periodic within the 2-D tessellation.}
+    \label{fig:2D_periodic}
+\end{figure}
+
+\paragraph{Free sliding benchmark}
+
+In the regime of very small $\omega$, grain boundaries may be approximated as freely sliding. We first calculated the relationship between the Poisson's ratio and the effective shear modulus and benchmarked our results against those of Ghahremani \cite{ghahremani_effect_1980} and Rudge \cite{rudge_viscoelastic_2025}. Our calculations match previous work exactly, as shown in Figure~\ref{fig:shear_poisson}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{Shear_modulus_Poisson_ratio.png}
+    \caption{Ratio of effective shear modulus to the shear modulus of a single crystal plotted against frequency, benchmarked against Ghahremani. The blue curve represents our finite-element results.}
+    \label{fig:shear_poisson}
+\end{figure}
+
+\paragraph{Attenuation benchmark}
+
+A second benchmark is performed by computing the imaginary part of the shear modulus, $\Im(G/\mu)$, as a function of frequency for finite viscosity. According to Ghahremani, the frequency dependence should follow a $\operatorname{sech}$ function, similar to that predicted by a standard linear solid model. Our results agree well with previous work, as shown in Figure~\ref{fig:attenuation_benchmark}, further confirming the accuracy of our calculation.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{attenuation_benchmark.png}
+    \caption{Imaginary part of the effective shear modulus plotted against frequency.}
+    \label{fig:attenuation_benchmark}
+\end{figure}
+
+\subsubsection{Random grain-size tessellation}
+
+While hexagonal tessellations are informative for understanding many rheological properties, real rocks are polycrystalline and exhibit non-uniform distributions of grain size, viscosity, shape, and orientation. In this section, we extend the analysis to tessellations with log-normal and then bimodal grain-size distributions, computing the full stiffness tensor in each case.
+
+\paragraph{Log-normal distribution}
+
+The first numerical experiment uses RVEs of unit area containing 50 grains, where the equivalent diameter follows a log-normal distribution with standard deviation ranging from 0.05 to 0.5. This range captures natural observations, where the standard deviation typically lies between 0.2 and 0.4.
+
+To improve accuracy, 100 samples were generated for each standard deviation, and the stiffness tensor was taken as the arithmetic mean over the 100 samples. The results are shown in Figure~\ref{fig:all_errors_mean_hex_overlay}.
+
+\newpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{all_errors_mean_hex_overlay.png}
+    \caption{Components of the effective stiffness tensor plotted against $\ln(\omega)$. Colours indicate different standard deviations of the log-normal grain-size distribution.}
+    \label{fig:all_errors_mean_hex_overlay}
+\end{figure}
+
+Across all grain-size distributions, several consistent observations emerge:
+
+\begin{enumerate}
+    \item Both the real and imaginary parts of $C_{xxxy}$ and $C_{yyxy}$ are effectively zero (more than three orders of magnitude smaller than the bulk modulus).
+    \item The components $C_{xxxx}$, $C_{yyyy}$, and $C_{xxyy}$ remain constant multiples of the shear modulus $C_{xyxy}$.
+    \item The bulk modulus computed as $\frac{1}{4}(C_{xxxx}+C_{yyyy}+2C_{xxyy})$ is a purely real constant.
+\end{enumerate}
+
+These observations indicate that the tessellations are sufficiently random to produce an isotropic rheology. Thus, the material behaviour reduces to two independent moduli: bulk and shear. Bulk deformations are purely elastic and exhibit no attenuation; the bulk modulus matches that of a single crystal. The shear modulus displays a sigmoidal real part and a $\operatorname{sech}$-shaped imaginary part with respect to $\ln \omega$, similar to the hexagonal case, but with notable differences:
+
+\begin{enumerate}
+    \item At very small $\omega$ (free-sliding regime), the shear modulus is purely real but reduced by about 10\% compared to the hexagonal tessellation; the RVE is mechanically weaker. It is also slightly weaker (by approximately 1\%) for more uniform grain-size distributions.
+    \item The peak imaginary part is approximately 30\% larger (more attenuation). The peak magnitude increases slightly (1--10\%) as grain-size variance decreases.
+    \item The frequency at which attenuation peaks increases slightly as grain-size variance decreases.
+\end{enumerate}
+
+The relationships between these features of the shear modulus and the logarithmic grain-size standard deviation are summarised in Figure~\ref{fig:error_vs_cxyxy_combined}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{error_vs_cxyxy_combined.png}
+    \caption{Shear-modulus features from Figure~\ref{fig:all_errors_mean_hex_overlay} with error bars derived from statistics of 100 samples. (a) Linear decrease of peak magnitude with increasing grain-size spread. (b) Nonlinear shift of peak frequency. (c) Linear increase of the low-frequency shear modulus with increasing grain-size spread.}
+    \label{fig:error_vs_cxyxy_combined}
+\end{figure}
+
+In summary, making grain sizes and shapes random does not change the fact that the RVE behaves as an isotropic linear solid. However, randomness significantly weakens the low-frequency response and increases attenuation relative to the hexagonal tessellation. Variation in grain-size spread produces only modest changes. This suggests that the ``nearly constant $Q$'' behaviour cannot be explained by a distribution of grain sizes alone.
+
+\paragraph{Bimodal grain-size distribution}
+
+Since mantle rocks consist of multiple minerals (primarily olivine and pyroxene), each with different characteristic grain sizes, a bimodal grain-size distribution may be more realistic. If distinct grain-size modes generated distinct attenuation peaks, these should be resolvable when the modes differ sufficiently.
+
+We generate 100 RVEs with a bimodal distribution where the two modal equivalent diameters differ by a factor of 10 (Figure~\ref{fig:bimodal_diameq_lognormal}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{bimodal_diameq_lognormal.png}
+    \caption{Bimodal distribution of equivalent grain diameters, where the larger mode is a factor of 10 greater than the smaller.}
+    \label{fig:bimodal_diameq_lognormal}
+\end{figure}
+
+The six stiffness-tensor components were computed for all samples, and their averages are shown in Figure~\ref{fig:bimodal_one_eta}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{bimodal_one_eta.png}
+    \caption{Average stiffness tensor for RVEs with a bimodal grain-size distribution. Shaded region denotes sample range; solid line is the mean.}
+    \label{fig:bimodal_one_eta}
+\end{figure}
+
+No significant departure from the log-normal case is observed. The stiffness tensor remains isotropic, and only a single attenuation peak is present. This indicates that the lack of multiple peaks is not due to limited resolution but rather intrinsic to the model: grain-size distribution alone does not produce the nearly constant-$Q$ behaviour within the EAGBS framework.
+
+\subsubsection{Different surface viscosity}
+
+Different minerals have different crystal structures and melting points. In olivine--pyroxene aggregates, the smaller pyroxene grains generally have lower melting points, producing thicker viscous layers and lower viscosities at grain boundaries. From Eq.~\ref{eq:sliding time}, this modifies the timescale for grain-boundary sliding and hence the factor $\eta/\eta_0$ in the weak form.
+
+Using the same 100 bimodal samples, we adjust $\eta/\eta_0$ such that large--large grain boundaries are ten times stronger than in the uniform case, while small--small boundaries retain viscosity $\eta_0$. The mixed (small--large) boundaries have viscosity
+\[
+\eta_{sl} = \frac{1}{\frac{1}{\eta_s} + \frac{1}{\eta_l}},
+\]
+with
+\[
+\eta_s = 2\eta_{ss}, \qquad \eta_l = 2\eta_{ll}.
+\]
+
+This yields
+\[
+\eta_{ss} = \eta_0, \qquad \eta_{sl} = 1.8\eta_0, \qquad \eta_{ll} = 10\eta_0.
+\]
+
+The resulting shear modulus is shown in Figure~\ref{fig:bimodal_two_eta}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{bimodal_two_eta.png}
+    \caption{Shear modulus for RVEs where large grains have ten times the boundary viscosity (blue), compared with uniform viscosity (red). Shaded areas denote sample ranges; solid lines denote averages.}
+    \label{fig:bimodal_two_eta}
+\end{figure}
+
+The modified viscosity introduces two attenuation peaks: a larger peak at lower frequency (around $\ln 10$) and a smaller one at higher frequency. These peaks overlap but are distinct. Dimensional analysis indicates that the left peak corresponds to high-viscosity large--large boundaries, while the right peak corresponds to the low-viscosity small--small and small--large boundaries, which differ by only a factor of 1.8 and thus cannot be resolved separately.
+
+
+\newpage
+\section{Diffusion accommodated grain boundary sliding}
+\subsection{Theory}
+\subsubsection{Governing equations}
+In the regime of coble creep, the interior of the grain remains governed by linear elasticity but now the grain boundary not only slide tangentially but deforms viscously as well. It is argued that the timescale for diffusion creep is multiple orders of magnitude away from that of elastically accommodated grain boundary sliding and hence we assume that tangential sliding of grain boundaries happens freely, i.e.,
+\begin{align}
+    \sigma_{ns} = 0 \quad \text{on S} \label{eq:DAGBS shear}\\
+    \frac{\partial^2\sigma_{nn}}{\partial n^2} = -\frac{kT}{\Omega\delta D^{gb}}[\frac{\partial u_n}{\partial t}]\quad  \label{eq:DAGBS normal}\text{on S}
+\end{align}
+\subsubsection{Rescaling}
+The natural timescale of the system is the Maxwell time, given by:
+\begin{equation}
+    \tau _M = \frac{\eta}{G_0}
+\end{equation}
+where $\eta$ is the steady state viscosity and $G_0$ is the unrelaxed shear modulus.
+
+\subsection{Discretisation}
+We solve the set of equations together with the boundary conditions in equations~\ref{eq:nondim ela}, \ref{eq:DAGBS normal}, and \ref{eq:DAGBS shear} in a representative volume element (RVE) large enough to capture macroscopic viscoelastic behavior. The RVE consists of multiple grains, and displacement is discontinuous across grain boundaries. We discretize the equations in the $H^1$ Sobolev space. Since $H^1$ basis functions are continuous across element interfaces, the RVE must be partitioned into subdomains, each containing a single grain or grain fragment.
+
+\subsubsection{On each grain}
+On a grain occupying domain $\Omega_i$, we test equation~\ref{eq:nondim ela} against a vector test function $\vect{v} \in H^1$. Applying Green’s theorem gives
+\begin{equation}
+    \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV
+    - \int_{\partial\Omega_i} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_i\, dS = 0, \label{eq: ingrain weak}
+\end{equation}
+where $(\cdot)^*$ denotes complex conjugation.
+
+\subsubsection{On grain boundaries} \label{gb}
+For neighboring grains $\Omega_i$ and $\Omega_j$, the boundary term over their shared interface $\Gamma_{GB} = \partial\Omega_i \cap \partial\Omega_j$ is
+\begin{equation}
+    \int_{\partial\Omega_i} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_i\, dS 
+    + \int_{\partial\Omega_j} \vect{v}\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS
+    = \int_{\Gamma_{GB}} [\vect{v}]\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS,
+\end{equation}
+where $\vect{n}_j = -\vect{n}_i$ and $[\vect{v}] = \vect{v}_i - \vect{v}_j$.
+Decomposing traction $\tensor{\sigma}\cdot\vect{n}_j$ into normal and tangential components $t_n = \vect{n}\cdot\tensor{\sigma}\cdot\vect{n}$ and $t_s = \vect{s}\cdot\tensor{\sigma}\cdot\vect{n}$, we have
+\begin{equation}
+    \int_{\Gamma_{GB}} [\vect{v}]\cdot\tensor{\sigma}^*(\vect{u})\cdot\vect{n}_j\, dS = \int_{\Gamma_{GB}} [v_s]\, t_s^*\, +[v_n]t_n^*dS.
+\end{equation}
+
+We weakly enforce the grain-boundary sliding conditions, solving for unknown tractions with trial and test function pairs $\{t_s, t_n\}$ and $\{r_s, r_n\}$. From equations~\ref{eq:DAGBS normal} and \ref{eq:DAGBS shear}, multiplying by test functions $r_s$ and $r_n$ gives
+\begin{equation}
+    \frac{i\Omega\delta D^{GB}}{\omega kT}\int_{\Gamma_{GB}}\frac{\partial t_n^*}{\partial n}\frac{\partial r_n}{\partial n} \, dS= \int_{\Gamma_{GB}} [u_n]^* r_n\, dS.
+\end{equation}
+The total weak form is then
+\begin{equation}
+\begin{aligned}
+&\sum_i \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV \\
+&\quad  - \int_{\Gamma_{GB}} [v_n]\, t_n^*\, dS 
+-\int_{\Gamma_{GB}} [u_n]^* r_n\, dS +\frac{i\Omega\delta D^{GB}}{\omega kT}\int_{\Gamma_{GB}}\frac{\partial t_n^*}{\partial n}\frac{\partial r_n}{\partial n} \, dS\\
+&\quad + \text{(RVE boundary terms)} = 0.
+\end{aligned}
+\end{equation}
+
+\subsubsection{On RVE boundaries}
+For a periodic RVE, the displacement can be decomposed as
+\begin{equation}
+    \vect{u}_{\text{total}} = \vect{U} + \vect{u},
+\end{equation}
+where $\vect{U}$ represents the macroscopic (rigid-body) part and $\vect{u}$ the local deformation.  
+Following the micro-polar model of \citet{rudge_micropolar_2021, rudge_viscoelastic_2025}, $\vect{U}$ is described by macroscopic strain and rotation tensors $\tensor{\Gamma}$ and $\tensor{K}$, giving
+\begin{equation}
+    [\vect{U}] = \tensor{\Gamma}\cdot\vect{R} + (\tensor{K}\cdot\vect{R})\times\vect{d},
+\end{equation}
+where $\vect{R}$ joins the centroids of neighboring RVEs and $\vect{d}$ joins the centroid of a neighboring RVE to a point on the boundary.  
+Here we upscale the model into a Cauchy continuum and neglect granular-scale rotation, so $\tensor{K} = \tensor{0}$ and $\tensor{\Gamma}$ is fully symmetric (identical to the macroscopic strain-rate tensor):
+\begin{equation}
+    [\vect{U}] = \tensor{\Gamma}\cdot\vect{R}.
+\end{equation}
+Using the same procedure as in Section~\ref{gb}, we obtain
+\begin{equation}
+\begin{aligned}
+&\sum_i \int_{\Omega_i} \tensor{\sigma}^*(\vect{u}) : \tensor{\varepsilon}(\vect{v})\, dV \\
+&\quad - \int_{\Gamma_{GB}} [v_n]\, t_n^*\, dS 
+-\int_{\Gamma_{GB}} [u_n]^* r_n\, dS 
++ \frac{i\Omega\delta D^{GB}}{\omega kT}\int_{\Gamma_{GB}}\frac{\partial t_n^*}{\partial n}\frac{\partial r_n}{\partial n} \, dS \\
+&\quad - \int_{\Gamma_\text{top}\cup\Gamma_\text{right}} ([v_s]\, t_s^* + [v_n]\, t_n^*)\, dS
+- \int_{\Gamma_\text{top}\cup\Gamma_\text{right}} ([u_s]^* r_s + [u_n]^* r_n)\, dS \\
+&= -\int_{\Gamma_\text{top}\cup\Gamma_\text{right}} \tensor{\Gamma}^*\cdot\vect{R}\cdot\vect{n}\, r_n\, dS
+   -\int_{\Gamma_\text{top}\cup\Gamma_\text{right}} \tensor{\Gamma}^*\cdot\vect{R}\cdot\vect{s}\, r_s\, dS.
+\end{aligned}
+\end{equation}
+\bibliographystyle{abbrv}
+\bibliography{references}
+\newpage
+% \appendix
+% \section{Flowchart of Codes}
+
+
+% \begin{figure}[H]
+% \centering
+% \resizebox{1.0\linewidth}{!}{%
+% \begin{tikzpicture}[
+%   font=\small,
+%   node distance=7mm and 12mm,
+%   box/.style={draw, rounded corners, align=left, inner sep=4pt, text width=5.6cm},
+%   sbox/.style={draw, rounded corners, align=left, inner sep=3pt, text width=5.6cm},
+%   decision/.style={draw, diamond, aspect=2.2, align=center, inner sep=2pt, text width=3.4cm},
+%   arrow/.style={-Latex, thick},
+%   group/.style={draw, rounded corners, inner sep=6pt, dashed}
+% ]
+
+% % ---------------------------
+% % Top-level: MakeMesh
+% % ---------------------------
+% \node[box] (in) {%
+% \textbf{MakeMesh(pts, regions, maxh, comm, core\_frac, corner\_core\_frac)}\\
+% Inputs: tessellation vertices + polygons, mesh size, MPI comm
+% };
+
+% \node[box, below=of in] (areas) {%
+% \textbf{compute\_region\_areas}\\
+% Shoelace area per region $\rightarrow$ \texttt{region\_areas}
+% };
+
+% \node[box, below=of areas] (shared0) {%
+% \textbf{build\_shared\_edge\_map}\\
+% Edges owned by 2 regions $\rightarrow$ \texttt{shared\_map}\\
+% Edges owned by 1 region $\rightarrow$ \texttt{boundary\_map}
+% };
+
+% \node[box, below=of shared0] (outerpairsA) {%
+% \textbf{classify\_external\_edges(boundary\_map)}\\
+% Pair boundary edges periodically $\rightarrow$ \texttt{outer\_pairs\_for\_grains}
+% };
+
+% \node[box, below=of outerpairsA] (stitch) {%
+% \textbf{stitch\_regions\_via\_periodic\_pairs}\\
+% Union-find glue regions across periodic pairs\\
+% $\rightarrow$ \texttt{region\_to\_grain}, \texttt{grain\_areas}
+% };
+
+% \node[box, below=of stitch] (kmeans) {%
+% \textbf{classify\_grain\_sizes(grain\_areas)}\\
+% Log-area 1D 2-cluster k-means\\
+% $\rightarrow$ \texttt{grain\_classes} \{small, large\}
+% };
+
+% \node[box, below=of kmeans] (triple) {%
+% \textbf{find\_triple\_vertices}\\
+% Vertices belonging to $\ge 3$ regions\\
+% $\rightarrow$ \texttt{triple\_pts}
+% };
+
+% \node[box, below=of triple] (geom) {%
+% \textbf{build\_geometry\_with\_region\_labels}\\
+% Construct OCC faces w/ boundary labels, set local mesh sizes, generate NGSolve mesh\\
+% $\rightarrow$ \texttt{mesh}, \texttt{faces}, \texttt{contact\_pairs}, \texttt{outer\_contact\_pairs},\\
+% \texttt{corner\_label}, \texttt{outer\_core\_labels}
+% };
+
+% \node[box, below=of geom] (gbtype) {%
+% \textbf{build\_gb\_size\_type(contact\_pairs)}\\
+% Map region-pair boundaries to SS/SL/LL using grain classes\\
+% $\rightarrow$ \texttt{gb\_size\_type}
+% };
+
+% \node[box, below=of gbtype] (out) {%
+% \textbf{Return}\\
+% (shape, geo, mesh, faces, contact\_pairs, outer\_contact\_pairs,\\
+% corner\_label, outer\_core\_labels, grain\_areas, grain\_classes, gb\_size\_type)
+% };
+
+% \draw[arrow] (in) -- (areas);
+% \draw[arrow] (areas) -- (shared0);
+% \draw[arrow] (shared0) -- (outerpairsA);
+% \draw[arrow] (outerpairsA) -- (stitch);
+% \draw[arrow] (stitch) -- (kmeans);
+% \draw[arrow] (kmeans) -- (triple);
+% \draw[arrow] (triple) -- (geom);
+% \draw[arrow] (geom) -- (gbtype);
+% \draw[arrow] (gbtype) -- (out);
+
+% % ---------------------------
+% % Sub-flow: build_geometry_with_region_labels
+% % ---------------------------
+% \node[sbox, right=40mm of geom, yshift=26mm] (bg_in) {%
+% \textbf{build\_geometry\_with\_region\_labels}\\
+% Inputs: points, regions, maxh, triple\_pts, core\_frac
+% };
+
+% \node[sbox, below=of bg_in] (bg_shared) {%
+% \textbf{build\_shared\_edge\_map}\\
+% $\rightarrow$ shared\_map, boundary\_map
+% };
+
+% \node[sbox, below=of bg_shared] (bg_outer) {%
+% \textbf{classify\_external\_edges(boundary\_map)}\\
+% $\rightarrow$ outer\_edge\_meta, outer\_pairs, outer\_kink\_vertices
+% };
+
+% \node[sbox, below=of bg_outer] (bg_faces) {%
+% \textbf{For each region}: \textbf{face\_from\_region}\\
+% Create WorkPlane polygon and label edges\\
+% $\rightarrow$ list of OCC faces
+% };
+
+% \node[sbox, below=of bg_faces] (bg_comp) {%
+% \textbf{Compound(faces)} (no fuse)\\
+% Preserve left/right boundary names for pairing
+% };
+
+% \node[sbox, below=of bg_comp] (bg_mesh) {%
+% \textbf{OCCGeometry + GenerateMesh(maxh)}\\
+% Optionally \textbf{SetLocalH} on outer-core labels\\
+% $\rightarrow$ NGSolve \texttt{mesh}
+% };
+
+% \node[sbox, below=of bg_mesh] (bg_pairs) {%
+% \textbf{Build contact maps}\\
+% Internal: \texttt{contact\_pairs} from shared\_map\\
+% Outer: \texttt{outer\_contact\_pairs} from outer\_pairs + displacement
+% };
+
+% \draw[arrow] (bg_in) -- (bg_shared);
+% \draw[arrow] (bg_shared) -- (bg_outer);
+% \draw[arrow] (bg_outer) -- (bg_faces);
+% \draw[arrow] (bg_faces) -- (bg_comp);
+% \draw[arrow] (bg_comp) -- (bg_mesh);
+% \draw[arrow] (bg_mesh) -- (bg_pairs);
+
+% % connector from geom node to sub-flow
+% \draw[arrow] (geom.east) -- ++(10mm,0) |- (bg_in.west);
+
+% % ---------------------------
+% % Sub-sub-flow: edge labelling inside face_from_region
+% % ---------------------------
+% \node[decision, right=40mm of bg_faces, yshift=10mm] (case) {Edge is shared?};
+
+% \node[sbox, above right=8mm and 10mm of case] (internal) {%
+% \textbf{Internal shared GB}\\
+% Detect triple endpoints\\
+% Split into core/slide segments\\
+% Label: \texttt{core\_i\_j\_L/R}, \texttt{slide\_i\_j\_L/R}
+% };
+
+% \node[sbox, below right=8mm and 10mm of case] (external) {%
+% \textbf{External boundary}\\
+% Use periodic metadata (prefix, displacement)\\
+% Optionally create outer-core segments at kink vertices\\
+% Label: \texttt{core\_outer\_\#\_\{minus/plus\}\_\{upper/lower\}},\\
+% \texttt{slide\_outer\_\#\_\{minus/plus\}}
+% };
+
+% \draw[arrow] (bg_faces.east) -- ++(10mm,0) |- (case.west);
+% \draw[arrow] (case) -- node[above, sloped]{yes} (internal.west);
+% \draw[arrow] (case) -- node[below, sloped]{no} (external.west);
+
+% % ---------------------------
+% % Group boxes (optional)
+% % ---------------------------
+% \node[group, fit=(in)(out), label={[align=left]above:Top-level pipeline}] {};
+% \node[group, fit=(bg_in)(bg_pairs), label={[align=left]above:Geometry/mesh builder}] {};
+% \node[group, fit=(case)(internal)(external), label={[align=left]above:Edge labelling logic}] {};
+
+% \end{tikzpicture}}
+% \caption{Flow chart of the tessellated RVE geometry + mesh construction pipeline.}
+% \end{figure}
+
+% \begin{figure}[H]
+% \centering
+% \resizebox{1.0\linewidth}{!}{%
+% \begin{tikzpicture}[
+%   font=\small,
+%   node distance=7mm and 12mm,
+%   box/.style={draw, rounded corners, align=left, inner sep=4pt, text width=5.9cm},
+%   sbox/.style={draw, rounded corners, align=left, inner sep=3pt, text width=5.9cm},
+%   decision/.style={draw, diamond, aspect=2.2, align=center, inner sep=2pt, text width=3.6cm},
+%   arrow/.style={-Latex, thick},
+%   group/.style={draw, rounded corners, inner sep=6pt, dashed}
+% ]
+
+% % ---------------------------
+% % Top-level entry points
+% % ---------------------------
+% \node[box] (entry) {%
+% \textbf{Entry points}\\
+% \texttt{build\_spaces(mesh, contact\_pairs, outer\_contact\_pairs, ...)}\\
+% \texttt{solve\_rve(spaces, mesh, contact\_pairs, outer\_contact\_pairs, gamma, ...)}
+% };
+
+% % ---------------------------
+% % build_spaces flow
+% % ---------------------------
+% \node[box, below left=of entry, xshift=-6mm] (bs_in) {%
+% \textbf{build\_spaces(...)}\\
+% Inputs: mesh, (internal) contact\_pairs, (outer) outer\_contact\_pairs, orders
+% };
+
+% \node[box, below=of bs_in] (bs_bulk) {%
+% \textbf{Bulk displacement spaces}\\
+% $V_{\Re}=\texttt{VectorH1}$, $V_{\Im}=\texttt{VectorH1}$\\
+% (no strong Dirichlet; corners via Nitsche later)
+% };
+
+% \node[box, below=of bs_bulk] (bs_gb) {%
+% \textbf{GB multiplier spaces (per internal edge)}\\
+% For each $(i,j)$ in \texttt{contact\_pairs}:\\
+% \quad bdry = \texttt{core\_right | slide\_right}\\
+% \quad add 4$\times$H1: $(t_s^\Re,t_s^\Im,t_n^\Re,t_n^\Im)$\\
+% \quad record symbol names (trial/test)
+% };
+
+% \node[box, below=of bs_gb] (bs_outer) {%
+% \textbf{Outer multiplier spaces (per periodic pair)}\\
+% For each \texttt{outer\_pair}:\\
+% \quad bdry = \texttt{(core\_names)|slide\_plus\_prefix}\\
+% \quad add 4$\times$H1 multipliers + symbol names
+% };
+
+% \node[box, below=of bs_outer] (bs_fes) {%
+% \textbf{Assemble product FES}\\
+% Start: $\texttt{fes}=V_{\Re}\times V_{\Im}$\\
+% Group multipliers into chunks, build products, multiply into final \texttt{fes}
+% };
+
+% \node[box, below=of bs_fes] (bs_sym) {%
+% \textbf{Create symbol namespace}\\
+% \texttt{trial\_tuple = fes.TrialFunction()}\\
+% \texttt{test\_tuple  = fes.TestFunction()}\\
+% Assert arity matches recorded names\\
+% $\rightarrow$ \texttt{sym = SimpleNamespace(...)}
+% };
+
+% \node[box, below=of bs_sym] (bs_out) {%
+% \textbf{Return spaces}\\
+% (\texttt{fes}, $V_{\Re}$, $V_{\Im}$, \texttt{sym})
+% };
+
+% \draw[arrow] (bs_in) -- (bs_bulk);
+% \draw[arrow] (bs_bulk) -- (bs_gb);
+% \draw[arrow] (bs_gb) -- (bs_outer);
+% \draw[arrow] (bs_outer) -- (bs_fes);
+% \draw[arrow] (bs_fes) -- (bs_sym);
+% \draw[arrow] (bs_sym) -- (bs_out);
+
+% % connector from entry
+% \draw[arrow] (entry.south) -- ++(0,-4mm) -| (bs_in.north);
+
+% % ---------------------------
+% % solve_rve flow
+% % ---------------------------
+% \node[box, below right=of entry, xshift=6mm] (sr_in) {%
+% \textbf{solve\_rve(...)}\\
+% Inputs: spaces, mesh, contact\_pairs, outer\_contact\_pairs, $\gamma$, $(\nu,\mu,\omega)$, solver, rtol
+% };
+
+% \node[box, below=of sr_in] (sr_mat) {%
+% \textbf{Material scaling}\\
+% \texttt{\_setup\_material\_properties}:\\
+% $\Gamma=\texttt{CF}(\gamma)\cdot10^{-3}$,\quad $\lambda=2\mu\nu/(1-2\nu)$
+% };
+
+% \node[box, below=of sr_mat] (sr_unpack) {%
+% \textbf{Unpack spaces}\\
+% \texttt{fes}, $V_{\Re}$, $V_{\Im}$, \texttt{sym} from \texttt{spaces}
+% };
+
+% \node[box, below=of sr_unpack] (sr_a) {%
+% \textbf{Assemble bilinear form $a$}\\
+% \texttt{\_assemble\_bilinear\_form} =\\
+% \quad elasticity $\int \sigma(u):\varepsilon(v)\,dx$\\
+% \quad + internal GB terms (slide \& core)\\
+% \quad + periodic outer terms (slide \& core)
+% };
+
+% \node[box, below=of sr_a] (sr_f) {%
+% \textbf{Assemble linear form $f$}\\
+% \texttt{\_assemble\_linear\_form}: macro traction jumps on\\
+% (core names + \texttt{slide\_plus\_prefix}) using displacement vectors
+% };
+
+% \node[box, below=of sr_f] (sr_macro) {%
+% \textbf{Macro affine field}\\
+% \texttt{disp=(x,y)},\quad $\texttt{CF\_u}=\Gamma\cdot\texttt{disp}$
+% };
+
+% \node[box, below=of sr_macro] (sr_corner) {%
+% \textbf{Optional corner anchoring (Nitsche-like)}\\
+% \texttt{\_add\_corner\_penalty(a,f,...,corner\_bnd)}\\
+% Adds $(\gamma_N/h)\int u\cdot v\,ds$ and RHS $(\gamma_N/h)\int CF_u\cdot v\,ds$
+% };
+
+% \node[decision, below=of sr_corner] (sr_solver) {Solver?};
+
+% \node[sbox, below left=8mm and 10mm of sr_solver] (direct) {%
+% \textbf{Direct (Pardiso)}\\
+% Assemble $a,f$; solve $gfu = A^{-1}f$\\
+% Compute relative residual and test \texttt{rtol}
+% };
+
+% \node[sbox, below right=8mm and 10mm of sr_solver] (iter) {%
+% \textbf{Iterative (CG + MG precond)}\\
+% Assemble $a,f$; multigrid preconditioner\\
+% CG solve; compute relative residual and test \texttt{rtol}
+% };
+
+% \node[box, below=19mm of sr_solver] (sr_out) {%
+% \textbf{Return}\\
+% (\texttt{gfu}, \texttt{mesh}, \texttt{convergence})
+% };
+
+% \draw[arrow] (sr_in) -- (sr_mat);
+% \draw[arrow] (sr_mat) -- (sr_unpack);
+% \draw[arrow] (sr_unpack) -- (sr_a);
+% \draw[arrow] (sr_a) -- (sr_f);
+% \draw[arrow] (sr_f) -- (sr_macro);
+% \draw[arrow] (sr_macro) -- (sr_corner);
+% \draw[arrow] (sr_corner) -- (sr_solver);
+
+% \draw[arrow] (sr_solver) -- node[above, sloped]{direct} (direct.north);
+% \draw[arrow] (sr_solver) -- node[above, sloped]{CG} (iter.north);
+
+% \draw[arrow] (direct.south) -- ++(0,-4mm) -| (sr_out.west);
+% \draw[arrow] (iter.south)   -- ++(0,-4mm) -| (sr_out.east);
+
+% % connector from entry
+% \draw[arrow] (entry.south) -- ++(0,-4mm) -| (sr_in.north);
+
+% % ---------------------------
+% % Sub-flow: assembly helpers (detail)
+% % ---------------------------
+% \node[sbox, right=42mm of sr_a, yshift=10mm] (asm_in) {%
+% \textbf{\_assemble\_bilinear\_form (detail)}\\
+% Build $a$ as sum of blocks
+% };
+
+% \node[sbox, below=of asm_in] (asm_el) {%
+% Elasticity block\\
+% $\int \sigma(u):\varepsilon(v)\,dx$
+% };
+
+% \node[sbox, below=of asm_el] (asm_gb) {%
+% \textbf{\_add\_gb\_terms} (internal)\\
+% For each $(i,j)$: ContactBoundary(left,right)\\
+% Add tangential/normal coupling;\\
+% slide has $(1/\omega)\,$viscous term with SS/SL/LL factor
+% };
+
+% \node[sbox, below=of asm_gb] (asm_outer) {%
+% \textbf{\_add\_outer\_terms} (periodic)\\
+% Pair plus/minus boundaries via displacement\\
+% slide: pair \texttt{slide\_prefix} (both\_sides=True)\\
+% core: pair each core segment name (both\_sides=False)
+% };
+
+% \draw[arrow] (sr_a.east) -- ++(10mm,0) |- (asm_in.west);
+% \draw[arrow] (asm_in) -- (asm_el);
+% \draw[arrow] (asm_el) -- (asm_gb);
+% \draw[arrow] (asm_gb) -- (asm_outer);
+
+% % ---------------------------
+% % Group boxes
+% % ---------------------------
+% \node[group, fit=(bs_in)(bs_out), label={[align=left]above:\texttt{build\_spaces} pipeline}] {};
+% \node[group, fit=(sr_in)(sr_out)(direct)(iter), label={[align=left]above:\texttt{solve\_rve} pipeline}] {};
+% \node[group, fit=(asm_in)(asm_outer), label={[align=left]above:Assembly helpers}] {};
+
+% \end{tikzpicture}
+% }
+% \caption{Flow chart of the complex EAGBS solver: mixed space construction, assembly, and solution.}
+
+% \end{figure}
+
+
+\end{document}
